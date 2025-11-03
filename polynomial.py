@@ -67,6 +67,25 @@ class Polynomial:
 		for _ in range(exp-1):
 			res = res * self
 		return res
+
+	@staticmethod
+	def variable(name: str) -> 'Polynomial':
+		return Polynomial([Monomial(Rational(1,1), {name:1})])
+
+	def compose(self, subs: Dict[str, 'Polynomial']) -> 'Polynomial':
+		"""Substitute polynomials for variables: return P(Q1(x), Q2(x), ...).
+
+		Any variable not present in subs remains as itself.
+		"""
+		result = Polynomial([])
+		for m in self.terms:
+			# start with the coefficient as a constant polynomial
+			term_poly = Polynomial([Monomial(m.coefficient(), {})])
+			for var, exp in m.vmap().items():
+				base = subs.get(var, Polynomial.variable(var))
+				term_poly = term_poly * base.pow(exp)
+			result = result + term_poly
+		return result
 	
 	def eval(self, env: Dict[str, Rational]) -> Rational:
 		total = Rational(0,1)
