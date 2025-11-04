@@ -7,6 +7,7 @@ from edag import EDAG
 from interval import Interval
 import re
 import math
+import numpy as np
 
 NumberLike = Union[int, float, Rational]
 
@@ -184,8 +185,8 @@ class CAS:
 			# Sample points to find sign changes
 			x_vals = []
 			f_vals = []
-			for i in range(sample_points + 1):
-				x = a + i * (b - a) / sample_points
+			sample_x = np.linspace(a, b, sample_points + 1)
+			for x in sample_x:
 				try:
 					fx = self._eval_float(var, x)
 					x_vals.append(x)
@@ -241,8 +242,8 @@ class CAS:
 						num_samples = max(20, min(100, int(interval_width / max(1, (b - a) / sample_points) * 10)))
 						prev_x = x_vals[i]
 						prev_f = f_vals[i]
-						for j in range(1, num_samples + 1):
-							test_x = x_vals[i] + j * interval_width / (num_samples + 1)
+						dense_samples = np.linspace(x_vals[i], x_vals[i+1], num_samples + 2)[1:-1]  # Exclude endpoints
+						for idx, test_x in enumerate(dense_samples):
 							try:
 								test_f = self._eval_float(var, test_x)
 								# Check for sign change (handle zeros specially)
@@ -252,9 +253,9 @@ class CAS:
 									sign_change = True
 								elif abs(prev_f) < sample_tol and abs(test_f) > sample_tol:
 									# prev is zero, test is non-zero - check if it's a crossing
-									if j > 1:
+									if idx > 0:
 										# Check the value before prev
-										prev_prev_x = x_vals[i] + (j - 1) * interval_width / (num_samples + 1)
+										prev_prev_x = dense_samples[idx - 1]
 										try:
 											prev_prev_f = self._eval_float(var, prev_prev_x)
 											if prev_prev_f * test_f < 0:
@@ -302,8 +303,8 @@ class CAS:
 						num_samples = 10
 					prev_x = x_vals[i]
 					prev_f = f_vals[i]
-					for j in range(1, num_samples + 1):
-						test_x = x_vals[i] + j * interval_width / (num_samples + 1)
+					dense_samples = np.linspace(x_vals[i], x_vals[i+1], num_samples + 2)[1:-1]  # Exclude endpoints
+					for test_x in dense_samples:
 						try:
 							test_f = self._eval_float(var, test_x)
 							# Check for sign change
@@ -397,8 +398,8 @@ class CAS:
 				elif min(abs(f_vals[i]), abs(f_vals[i+1])) < sample_tol:
 					# One endpoint is very small - check the interval more carefully
 					# Sample at a few points in the interval
-					for j in range(3):
-						test_x = x_vals[i] + (j + 1) * (x_vals[i+1] - x_vals[i]) / 4
+					test_samples = np.linspace(x_vals[i], x_vals[i+1], 5)[1:-1]  # 3 points, excluding endpoints
+					for test_x in test_samples:
 						try:
 							test_f = self._eval_float(var, test_x)
 							if abs(test_f) < sample_tol:
@@ -421,10 +422,10 @@ class CAS:
 			if not roots:
 				return []
 			roots.sort()
-			unique_roots = [roots[0]]
+			unique_roots = [float(roots[0])]  # Convert to Python float
 			for r in roots[1:]:
 				if abs(r - unique_roots[-1]) > tol * 10:  # More lenient deduplication
-					unique_roots.append(r)
+					unique_roots.append(float(r))  # Convert to Python float
 			return unique_roots
 		def _get_derivative(self, var: str) -> Optional['CAS.ExprResult']:
 			"""Get derivative of this expression with respect to var."""
@@ -508,7 +509,7 @@ class CAS:
 				effective_a = a + boundary_margin
 				effective_b = b - boundary_margin
 				if effective_a < effective_b:
-					test_vals = [effective_a + (effective_b - effective_a) * i / 4 for i in range(5)]
+					test_vals = np.linspace(effective_a, effective_b, 5).tolist()
 				else:
 					# Very small interval, test at midpoint
 					test_vals = [(a + b) / 2]

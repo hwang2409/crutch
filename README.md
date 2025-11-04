@@ -68,10 +68,10 @@
 - [x] Automatic simplification of derivatives
 
 ### Phase 7: Advanced Features
-- [ ] Substitution system
+- [x] Substitution system
 - [ ] Canonicalization
 - [ ] GCD and factorization
-- [ ] Univariate polynomial solving
+- [x] Univariate polynomial solving
 - [ ] Complex number support
 - [ ] Matrix operations
 - [ ] Series expansion
