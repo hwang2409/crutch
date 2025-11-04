@@ -354,6 +354,129 @@ class EDAG:
 			raise ValueError('Unknown node type')
 		out.root = d(self.root)
 		return out
+	def integral(self, var: str) -> 'EDAG':
+		if self.root is None:
+			raise RuntimeError('no expression parsed')
+		# Recursive integrator with basic linearity/power rules
+		out = EDAG()
+		one = Rational(1,1)
+		zero = Rational(0,1)
+		def I(nid: str) -> Optional[str]:
+			n = self.g.nodes[nid]['data']
+			# constants
+			if n.type == 'CONST' and isinstance(n.value, Rational):
+				# ∫ c dx = c*x
+				c = out._add_const(n.value)
+				x = out._add_var(var)
+				return out._add_op('*', [ c, x ])
+			# variable
+			if n.type == 'VAR' and n.symbol == var:
+				x = out._add_var(var)
+				exp2 = out._add_const(Rational(2,1))
+				xsq = out._add_op('^', [ x, exp2 ])
+				den = out._add_const(Rational(2,1))
+				return out._add_op('/', [ xsq, den ])
+			# linearity
+			if n.type == 'OP' and n.op in ('+','-'):
+				parts: List[str] = []
+				for cid in n.children:
+					res = I(cid)
+					if res is None:
+						return None
+					parts.append(res)
+				# rebuild with same operator
+				if n.op == '+':
+					acc = parts[0]
+					for p in parts[1:]:
+						acc = out._add_op('+', [ acc, p ])
+					return acc
+				else:
+					# left - right - ...
+					acc = parts[0]
+					for p in parts[1:]:
+						acc = out._add_op('-', [ acc, p ])
+					return acc
+			# constant multiple: c*f(x)
+			if n.type == 'OP' and n.op == '*' and len(n.children) == 2:
+				left = self.g.nodes[n.children[0]]['data']
+				right = self.g.nodes[n.children[1]]['data']
+				if left.type == 'CONST' and isinstance(left.value, Rational):
+					inner = I(n.children[1])
+					if inner is None: return None
+					c = out._add_const(left.value)
+					return out._add_op('*', [ c, inner ])
+				if right.type == 'CONST' and isinstance(right.value, Rational):
+					inner = I(n.children[0])
+					if inner is None: return None
+					c = out._add_const(right.value)
+					return out._add_op('*', [ c, inner ])
+			# power rule: x^n, n != -1 integer
+			if n.type == 'OP' and n.op == '^':
+				b = self.g.nodes[n.children[0]]['data']
+				e = self.g.nodes[n.children[1]]['data']
+				if b.type == 'VAR' and b.symbol == var and e.type == 'CONST' and isinstance(e.value, Rational) and e.value.is_int():
+					nint = e.value.to_int()
+					if nint == -1:
+						# handled by 1/x case elsewhere
+						return None
+					new_exp = out._add_const(Rational(nint+1,1))
+					x = out._add_var(var)
+					xpow = out._add_op('^', [ x, new_exp ])
+					den = out._add_const(Rational(nint+1,1))
+					return out._add_op('/', [ xpow, den ])
+			# basic functions with exact var
+			if n.type == 'OP' and n.op in ('sin','cos','exp') and len(n.children) == 1:
+				ch = self.g.nodes[n.children[0]]['data']
+				if ch.type == 'VAR' and ch.symbol == var:
+					x = out._add_var(var)
+					if n.op == 'sin':
+						return out._add_op('-', [ out._add_op('cos', [ x ]) ], is_unary=True)
+					if n.op == 'cos':
+						return out._add_op('sin', [ x ])
+					if n.op == 'exp':
+						return out._add_op('exp', [ x ])
+			# 1/x
+			if n.type == 'OP' and n.op == '/' and len(n.children) == 2:
+				num = self.g.nodes[n.children[0]]['data']
+				den = self.g.nodes[n.children[1]]['data']
+				if num.type == 'CONST' and isinstance(num.value, Rational) and num.value == one and den.type == 'VAR' and den.symbol == var:
+					x = out._add_var(var)
+					return out._add_op('log', [ x ])
+			# 1/(1+x^2)
+			if n.type == 'OP' and n.op == '/' and len(n.children) == 2:
+				num = self.g.nodes[n.children[0]]['data']
+				den_id = n.children[1]
+				den = self.g.nodes[den_id]['data']
+				if num.type == 'CONST' and isinstance(num.value, Rational) and num.value == one and den.type == 'OP' and den.op == '+' and len(den.children) == 2:
+					left = self.g.nodes[den.children[0]]['data']; right = self.g.nodes[den.children[1]]['data']
+					if left.type == 'CONST' and isinstance(left.value, Rational) and left.value == one and right.type == 'OP' and right.op == '^':
+						b = self.g.nodes[right.children[0]]['data']; e = self.g.nodes[right.children[1]]['data']
+						if b.type == 'VAR' and b.symbol == var and e.type == 'CONST' and isinstance(e.value, Rational) and e.value == Rational(2,1):
+							x = out._add_var(var)
+							return out._add_op('atan', [ x ])
+			# 1/sqrt(1-x^2)
+			if n.type == 'OP' and n.op == '/' and len(n.children) == 2:
+				num = self.g.nodes[n.children[0]]['data']
+				den = self.g.nodes[n.children[1]]['data']
+				if num.type == 'CONST' and isinstance(num.value, Rational) and num.value == one and den.type == 'OP' and den.op == 'sqrt':
+					inner = self.g.nodes[den.children[0]]['data']
+					if inner.type == 'OP' and inner.op == '-' and len(inner.children) == 2:
+						l = self.g.nodes[inner.children[0]]['data']; r = self.g.nodes[inner.children[1]]['data']
+						if l.type == 'CONST' and isinstance(l.value, Rational) and l.value == one and r.type == 'OP' and r.op == '^':
+							b = self.g.nodes[r.children[0]]['data']; e = self.g.nodes[r.children[1]]['data']
+							if b.type == 'VAR' and b.symbol == var and e.type == 'CONST' and isinstance(e.value, Rational) and e.value == Rational(2,1):
+								x = out._add_var(var)
+								return out._add_op('asin', [ x ])
+			# unsupported
+			return None
+		res = I(self.root)
+		if res is None:
+			# fallback: copy input
+			memo: Dict[str,str] = {}
+			out.root = self._copy_subdag(self.root, out, memo)
+		else:
+			out.root = res
+		return out
 	def to_string(self) -> str:
 		if self.root is None:
 			return ''
